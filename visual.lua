@@ -1,5 +1,6 @@
 -- visual_full.lua
--- Полный рабочий скрипт: ESP, CHAMS, TRACE, LOG, HITSOUND + World (No Grass, No Leaves, Clouds, Ambient, Always Day, Remove Fog, Skybox: Default/Black)
+-- Полный рабочий скрипт для TridentLibrary: ESP, CHAMS, TRACE, LOG, HITSOUND + World (No Grass, No Leaves, Clouds, Ambient, Always Day, Remove Fog, Skybox: только Default)
+-- Ambient всегда яркий и насыщенный, Black skybox убран, только Default
 
 local Library = getgenv().TridentLibrary
 assert(Library, "Library не был найден! Запустите main.lua сначала.")
@@ -33,7 +34,6 @@ local espSettings = {
     sleepcheck = false,
     aicheck = false
 }
-
 local chamsSettings = {
     hand = false,
     handColor = Color3.new(1, 1, 1),
@@ -42,29 +42,25 @@ local chamsSettings = {
     itemColor = Color3.new(1, 1, 1),
     itemMat = "ForceField"
 }
-
 local traceSettings = {
     enabled = false,
     color = Color3.new(0,0.4,1),
     mode = "Legit"
 }
-
 local logSettings = {
     enabled = false,
     types = { ["Kill log"] = true, ["Hit log"] = true }
 }
-
 local hitSoundSettings = {
     enabled = false,
     soundType = "Rust"
 }
-
 local worldVisuals = {
     noGrass = false,
     noLeaves = false,
     clouds = true,
     cloudsColor = Color3.fromRGB(255,255,255),
-    ambient = Color3.fromRGB(40,40,40), -- чуть темнее
+    ambient = Color3.fromRGB(120,120,120), -- ярче!
     ambientEnabled = false,
     alwaysDay = false,
     removeFog = false,
@@ -90,14 +86,6 @@ local skyboxes = {
         SkyboxLf = "rbxassetid://401664881",
         SkyboxRt = "rbxassetid://401664929",
         SkyboxUp = "rbxassetid://401664883"
-    },
-    ["Black"] = {
-        SkyboxBk = "rbxassetid://1232261246",
-        SkyboxDn = "rbxassetid://1232261246",
-        SkyboxFt = "rbxassetid://1232261246",
-        SkyboxLf = "rbxassetid://1232261246",
-        SkyboxRt = "rbxassetid://1232261246",
-        SkyboxUp = "rbxassetid://1232261246"
     }
 }
 
@@ -124,7 +112,6 @@ local function removeLeaves()
         end
     end
 end
-
 local function leavesWatcher()
     if worldVisuals.noLeaves then
         removeLeaves()
@@ -172,13 +159,13 @@ local function setAmbient(enabled, color)
         if not oldBrightness then oldBrightness = lighting.Brightness end
         if not oldOutdoorAmbient then oldOutdoorAmbient = lighting.OutdoorAmbient end
         lighting.Ambient = color or worldVisuals.ambient
-        lighting.Brightness = 2
+        lighting.Brightness = 3 -- максимально ярко
         lighting.OutdoorAmbient = color or worldVisuals.ambient
         if ambientApplyConn then ambientApplyConn:Disconnect() end
         ambientApplyConn = lighting.Changed:Connect(function(prop)
             if worldVisuals.ambientEnabled and (prop == "Ambient" or prop == "Brightness" or prop == "OutdoorAmbient") then
                 lighting.Ambient = worldVisuals.ambient
-                lighting.Brightness = 2
+                lighting.Brightness = 3
                 lighting.OutdoorAmbient = worldVisuals.ambient
             end
         end)
@@ -203,13 +190,12 @@ local function setAlwaysDay(enabled)
                 lighting.ClockTime = 12
             end
         end)
+        -- ВОТ ТУТ ambient должен быть насыщенным даже в always day:
+        setAmbient(worldVisuals.ambientEnabled, worldVisuals.ambient)
     else
         if alwaysDayConn then alwaysDayConn:Disconnect() end
         alwaysDayConn = nil
-        if oldTime then
-            lighting.ClockTime = oldTime
-            oldTime = nil
-        end
+        if oldTime then lighting.ClockTime = oldTime end
     end
 end
 
@@ -425,7 +411,7 @@ WorldBox:AddToggle("RemoveFog", {
 })
 WorldBox:AddDropdown("SkyboxSelect", {
     Text = "Skybox",
-    Values = {"Default", "Black"},
+    Values = {"Default"},
     Default = "Default",
     Callback = function(val)
         worldVisuals.skybox = val
@@ -479,6 +465,7 @@ WorldBox:AddDropdown("LogTypes", {
         end
     end
 })
+
 -- === ВСЯ ЛОГИКА ESP/CHAMS/TRACE/LOG/HITSOUND ===
 
 local camera = workspace.CurrentCamera
