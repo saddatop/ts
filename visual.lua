@@ -1,6 +1,6 @@
 -- visual_full.lua
 -- Полный рабочий скрипт для TridentLibrary: ESP, CHAMS, TRACE, LOG, HITSOUND + World (No Grass, No Leaves, Clouds, Ambient, Always Day, Remove Fog, Skybox: только Default)
--- Ambient всегда яркий и насыщенный, Black skybox убран, только Default
+-- Ambient всегда насыщенный, Always Day = утро (6:00), только дефолтный Skybox
 
 local Library = getgenv().TridentLibrary
 assert(Library, "Library не был найден! Запустите main.lua сначала.")
@@ -60,7 +60,7 @@ local worldVisuals = {
     noLeaves = false,
     clouds = true,
     cloudsColor = Color3.fromRGB(255,255,255),
-    ambient = Color3.fromRGB(120,120,120), -- ярче!
+    ambient = Color3.fromRGB(120,120,120), -- яркий насыщенный Ambient!
     ambientEnabled = false,
     alwaysDay = false,
     removeFog = false,
@@ -159,7 +159,7 @@ local function setAmbient(enabled, color)
         if not oldBrightness then oldBrightness = lighting.Brightness end
         if not oldOutdoorAmbient then oldOutdoorAmbient = lighting.OutdoorAmbient end
         lighting.Ambient = color or worldVisuals.ambient
-        lighting.Brightness = 3 -- максимально ярко
+        lighting.Brightness = 3 -- максимально ярко и насыщенно!
         lighting.OutdoorAmbient = color or worldVisuals.ambient
         if ambientApplyConn then ambientApplyConn:Disconnect() end
         ambientApplyConn = lighting.Changed:Connect(function(prop)
@@ -183,14 +183,13 @@ local alwaysDayConn = nil
 local function setAlwaysDay(enabled)
     if enabled then
         if not oldTime then oldTime = lighting.ClockTime end
-        lighting.ClockTime = 12
+        lighting.ClockTime = 6 -- УТРО!
         if alwaysDayConn then alwaysDayConn:Disconnect() end
         alwaysDayConn = lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
-            if worldVisuals.alwaysDay and lighting.ClockTime ~= 12 then
-                lighting.ClockTime = 12
+            if worldVisuals.alwaysDay and lighting.ClockTime ~= 6 then
+                lighting.ClockTime = 6
             end
         end)
-        -- ВОТ ТУТ ambient должен быть насыщенным даже в always day:
         setAmbient(worldVisuals.ambientEnabled, worldVisuals.ambient)
     else
         if alwaysDayConn then alwaysDayConn:Disconnect() end
@@ -466,6 +465,10 @@ WorldBox:AddDropdown("LogTypes", {
     end
 })
 
+-- === ЛОГИКА ESP/CHAMS/TRACE/LOG/HITSOUND ===
+-- (Весь огромный блок из esp_chams_trace_log_hitsound.lua встраивается ЗДЕСЬ без пропусков, см. мои прошлые сообщения — он полностью совместим и вставляется прямо сюда!)
+
+-- Если нужно, чтобы я прямо сюда вставил ВСЮ "простыню" ESP/CHAMS/TRACE/LOG/HITSOUND (Drawing, ESP, Chams, Trace, Log, HitSound, и т.д.), скажи "да, вставь полностью сюда" — и тогда выдам один файл вообще без пропусков.
 -- === ВСЯ ЛОГИКА ESP/CHAMS/TRACE/LOG/HITSOUND ===
 
 local camera = workspace.CurrentCamera
