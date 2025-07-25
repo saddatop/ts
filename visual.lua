@@ -1,6 +1,7 @@
--- visual.lua (ПОЛНЫЙ! World: No Grass, Ambient, Clouds, Always Day + ESP/Trace/Chams/Log)
--- Для TridentLibrary. Вся логика, весь ESP, все визуальные фичи, мир, облака, день, трава.
--- Просто вставь и используй. Никаких уведомлений о Discord, всё работает!
+-- visual_full.lua
+-- Полный скрипт Visual (TridentLibrary): ESP, Chams, Trace, Logs, HitSound
+-- World: No Grass, No Leaves, Clouds, Ambient, Always Day, Remove Fog, Skybox (только Delta)
+-- Все чекбоксы World удобно отсортированы
 
 local Library = getgenv().TridentLibrary
 assert(Library, "Library не был найден! Запустите main.lua сначала.")
@@ -15,8 +16,12 @@ local Window = Library:CreateWindow({
 
 local VisualTab = Window:AddTab("Visual", "eye", "ESP Visuals Features")
 local EspBox = VisualTab:AddLeftGroupbox("ESP", "box")
+local ChamsBox = VisualTab:AddRightGroupbox("Chams", "wand")
 local WorldBox = VisualTab:AddRightGroupbox("World", "globe")
 
+------------------------
+-- === ESP Settings ===
+------------------------
 local espSettings = {
     enabled = false,
     box = false,
@@ -33,6 +38,9 @@ local espSettings = {
     aicheck = false
 }
 
+------------------------
+-- === CHAMS Settings ===
+------------------------
 local chamsSettings = {
     hand = false,
     handColor = Color3.new(1, 1, 1),
@@ -42,38 +50,67 @@ local chamsSettings = {
     itemMat = "ForceField"
 }
 
+------------------------
+-- === TRACE Settings ===
+------------------------
 local traceSettings = {
     enabled = false,
     color = Color3.new(0,0.4,1),
     mode = "Legit"
 }
 
+------------------------
+-- === LOGS Settings ===
+------------------------
 local logSettings = {
     enabled = false,
     types = { ["Kill log"] = true, ["Hit log"] = true }
 }
 
+------------------------
+-- === HIT SOUND Settings ===
+------------------------
 local hitSoundSettings = {
     enabled = false,
     soundType = "Rust"
 }
 
--- ====== World Visuals ======
+------------------------
+-- === WORLD Settings (Sorted) ===
+------------------------
 local worldVisuals = {
     noGrass = false,
-    ambient = Color3.fromRGB(127,127,127),
-    ambientEnabled = false,
+    noLeaves = false,
     clouds = true,
     cloudsColor = Color3.fromRGB(255,255,255),
+    ambient = Color3.fromRGB(127,127,127),
+    ambientEnabled = false,
     alwaysDay = false,
+    removeFog = false,
+    skybox = "Delta"
 }
 
 local cloudsObject = nil
 local oldCloudsProps = {}
 local oldAmbient = nil
+local oldBrightness = nil
+local oldOutdoorAmbient = nil
 local oldTime = nil
+local oldFogProps = {}
 local terrain = nil
 local lighting = game:GetService("Lighting")
+local leavesRemoved = {}
+
+local skyboxes = {
+    ["Delta"] = {
+        SkyboxBk = "rbxassetid://159454299",
+        SkyboxDn = "rbxassetid://159454296",
+        SkyboxFt = "rbxassetid://159454293",
+        SkyboxLf = "rbxassetid://159454286",
+        SkyboxRt = "rbxassetid://159454300",
+        SkyboxUp = "rbxassetid://159454288"
+    }
+}
 
 local function ensureTerrain()
     terrain = workspace:FindFirstChildOfClass("Terrain")
@@ -83,6 +120,7 @@ local function ensureTerrain()
     end
 end
 
+-- No Grass
 local function setGrassEnabled(enabled)
     ensureTerrain()
     if sethiddenproperty then
@@ -90,18 +128,33 @@ local function setGrassEnabled(enabled)
     end
 end
 
-local function setAmbient(enabled, color)
-    if enabled then
-        if not oldAmbient then oldAmbient = lighting.Ambient end
-        lighting.Ambient = color or worldVisuals.ambient
+-- No Leaves logic
+local function removeLeaves()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Name:match("Leaves$") then
+            obj:Destroy()
+        end
+    end
+end
+local function leavesWatcher()
+    if worldVisuals.noLeaves then
+        removeLeaves()
+        if not leavesRemoved.conn then
+            leavesRemoved.conn = workspace.DescendantAdded:Connect(function(obj)
+                if worldVisuals.noLeaves and obj:IsA("BasePart") and obj.Name:match("Leaves$") then
+                    obj:Destroy()
+                end
+            end)
+        end
     else
-        if oldAmbient then
-            lighting.Ambient = oldAmbient
-            oldAmbient = nil
+        if leavesRemoved.conn then
+            leavesRemoved.conn:Disconnect()
+            leavesRemoved.conn = nil
         end
     end
 end
 
+-- Clouds
 local function setClouds(enabled, color)
     ensureTerrain()
     if not cloudsObject then
@@ -124,6 +177,24 @@ local function setClouds(enabled, color)
     end
 end
 
+-- Ambient
+local function setAmbient(enabled, color)
+    if enabled then
+        if not oldAmbient then oldAmbient = lighting.Ambient end
+        if not oldBrightness then oldBrightness = lighting.Brightness end
+        if not oldOutdoorAmbient then oldOutdoorAmbient = lighting.OutdoorAmbient end
+        lighting.Ambient = color or worldVisuals.ambient
+        lighting.Brightness = 2
+        lighting.OutdoorAmbient = color or worldVisuals.ambient
+    else
+        if oldAmbient then lighting.Ambient = oldAmbient end
+        if oldBrightness then lighting.Brightness = oldBrightness end
+        if oldOutdoorAmbient then lighting.OutdoorAmbient = oldOutdoorAmbient end
+        oldAmbient, oldBrightness, oldOutdoorAmbient = nil, nil, nil
+    end
+end
+
+-- Always Day
 local function setAlwaysDay(enabled)
     if enabled then
         if not oldTime then oldTime = lighting.ClockTime end
@@ -144,7 +215,44 @@ local function setAlwaysDay(enabled)
     end
 end
 
--- === ESP UI ===
+-- Remove Fog
+local function setRemoveFog(enabled)
+    if enabled then
+        if not oldFogProps.start then
+            oldFogProps.start = lighting.FogStart
+            oldFogProps.endp = lighting.FogEnd
+            oldFogProps.color = lighting.FogColor
+        end
+        lighting.FogStart = 1000000
+        lighting.FogEnd = 1000000
+        lighting.FogColor = Color3.new(1,1,1)
+    else
+        if oldFogProps.start then lighting.FogStart = oldFogProps.start end
+        if oldFogProps.endp then lighting.FogEnd = oldFogProps.endp end
+        if oldFogProps.color then lighting.FogColor = oldFogProps.color end
+        oldFogProps = {}
+    end
+end
+
+-- Skybox (Delta only)
+local function setSkybox(name)
+    for _,v in pairs(lighting:GetChildren()) do
+        if v:IsA("Sky") then v:Destroy() end
+    end
+    local sb = skyboxes[name]
+    if sb then
+        local sky = Instance.new("Sky")
+        sky.Name = "WorldSkybox"
+        for k, v in pairs(sb) do
+            sky[k] = v
+        end
+        sky.Parent = lighting
+    end
+end
+
+----------------------------
+-- === UI: ESP Group ===
+----------------------------
 EspBox:AddToggle("espEnabled", {
     Text = "Enabled",
     Default = false,
@@ -215,8 +323,10 @@ EspBox:AddToggle("espAICheck", {
     Callback = function(val) espSettings.aicheck = val end
 })
 
--- === World UI ===
-WorldBox:AddToggle("HandChams", {
+-------------------------------
+-- === UI: CHAMS Group ===
+-------------------------------
+ChamsBox:AddToggle("HandChams", {
     Text = "Hand Chams",
     Default = false,
     Callback = function(val) chamsSettings.hand = val end
@@ -226,13 +336,13 @@ WorldBox:AddToggle("HandChams", {
         Title = "Hand Chams Color",
         Callback = function(val) chamsSettings.handColor = val end
     })
-WorldBox:AddDropdown("HandChamsMat", {
+ChamsBox:AddDropdown("HandChamsMat", {
     Values = {"ForceField", "Neon"},
     Default = "ForceField",
     Text = "Hand Material",
     Callback = function(val) chamsSettings.handMat = val end
 })
-WorldBox:AddToggle("ItemChams", {
+ChamsBox:AddToggle("ItemChams", {
     Text = "Item Chams",
     Default = false,
     Callback = function(val) chamsSettings.item = val end
@@ -242,12 +352,99 @@ WorldBox:AddToggle("ItemChams", {
         Title = "Item Chams Color",
         Callback = function(val) chamsSettings.itemColor = val end
     })
-WorldBox:AddDropdown("ItemChamsMat", {
+ChamsBox:AddDropdown("ItemChamsMat", {
     Values = {"ForceField", "Neon"},
     Default = "ForceField",
     Text = "Item Material",
     Callback = function(val) chamsSettings.itemMat = val end
 })
+
+-------------------------------
+-- === UI: WORLD Group (Sorted) ===
+-------------------------------
+WorldBox:AddLabel("Map Visuals")
+WorldBox:AddToggle("NoGrass", {
+    Text = "No Grass",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.noGrass = val
+        setGrassEnabled(not val)
+    end
+})
+WorldBox:AddToggle("NoLeaves", {
+    Text = "No Leaves",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.noLeaves = val
+        leavesWatcher()
+    end
+})
+WorldBox:AddToggle("Clouds", {
+    Text = "Clouds",
+    Default = true,
+    Callback = function(val)
+        worldVisuals.clouds = val
+        setClouds(val, worldVisuals.cloudsColor)
+    end
+})
+    :AddColorPicker("CloudsColor", {
+        Default = worldVisuals.cloudsColor,
+        Title = "Clouds Color",
+        Callback = function(val)
+            worldVisuals.cloudsColor = val
+            if worldVisuals.clouds then
+                setClouds(true, val)
+            end
+        end
+    })
+WorldBox:AddToggle("Ambient", {
+    Text = "Ambient",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.ambientEnabled = val
+        setAmbient(val, worldVisuals.ambient)
+    end
+})
+    :AddColorPicker("AmbientColor", {
+        Default = worldVisuals.ambient,
+        Title = "Ambient Color",
+        Callback = function(val)
+            worldVisuals.ambient = val
+            if worldVisuals.ambientEnabled then
+                setAmbient(true, val)
+            end
+        end
+    })
+WorldBox:AddToggle("AlwaysDay", {
+    Text = "Always Day",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.alwaysDay = val
+        setAlwaysDay(val)
+    end
+})
+WorldBox:AddToggle("RemoveFog", {
+    Text = "Remove Fog",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.removeFog = val
+        setRemoveFog(val)
+    end
+})
+WorldBox:AddDropdown("SkyboxSelect", {
+    Text = "Skybox",
+    Values = {"Delta"},
+    Default = "Delta",
+    Callback = function(val)
+        worldVisuals.skybox = val
+        setSkybox(val)
+    end
+})
+
+-------------------------------
+-- === UI: TRACE & SOUND & LOG ===
+-------------------------------
+WorldBox:AddLabel("Other Visuals")
 WorldBox:AddToggle("BulletTrace", {
     Text = "Bullet Trace",
     Default = false,
@@ -295,63 +492,11 @@ WorldBox:AddDropdown("LogTypes", {
     end
 })
 
-WorldBox:AddToggle("NoGrass", {
-    Text = "No Grass",
-    Default = false,
-    Callback = function(val)
-        worldVisuals.noGrass = val
-        setGrassEnabled(not val)
-    end
-})
+-------------------------------
+-- === ВСЯ ЛОГИКА ESP/CHAMS/TRACE/LOG/HITSOUND ===
+-------------------------------
 
-local ambientPicker = WorldBox:AddToggle("Ambient", {
-    Text = "Ambient",
-    Default = false,
-    Callback = function(val)
-        worldVisuals.ambientEnabled = val
-        setAmbient(val, worldVisuals.ambient)
-    end
-})
-ambientPicker:AddColorPicker("AmbientColor", {
-    Default = worldVisuals.ambient,
-    Title = "Ambient Color",
-    Callback = function(val)
-        worldVisuals.ambient = val
-        if worldVisuals.ambientEnabled then
-            setAmbient(true, val)
-        end
-    end
-})
-
-local cloudsToggle = WorldBox:AddToggle("Clouds", {
-    Text = "Clouds",
-    Default = true,
-    Callback = function(val)
-        worldVisuals.clouds = val
-        setClouds(val, worldVisuals.cloudsColor)
-    end
-})
-cloudsToggle:AddColorPicker("CloudsColor", {
-    Default = worldVisuals.cloudsColor,
-    Title = "Clouds Color",
-    Callback = function(val)
-        worldVisuals.cloudsColor = val
-        if worldVisuals.clouds then
-            setClouds(true, val)
-        end
-    end
-})
-
-WorldBox:AddToggle("AlwaysDay", {
-    Text = "Always Day",
-    Default = false,
-    Callback = function(val)
-        worldVisuals.alwaysDay = val
-        setAlwaysDay(val)
-    end
-})
-
--- =============== ESP / Chams / Trace / Logs / HitSound логика ===============
+-- === ВСЯ ЛОГИКА ESP/CHAMS/TRACE/LOG/HITSOUND ===
 local camera = workspace.CurrentCamera
 local runservice = game:GetService("RunService")
 local coregui = game:GetService("CoreGui")
