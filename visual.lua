@@ -1,4 +1,4 @@
--- visual.lua
+-- visual.lua (исправленный и полный)
 -- Вся логика вкладки Visual, ESP, Chams, Bullet Trail, HitSound, Logs и UI
 -- Подключает библиотеку Library из getgenv().TridentLibrary
 
@@ -16,8 +16,6 @@ local Window = Library:CreateWindow({
 local VisualTab = Window:AddTab("Visual", "eye", "ESP Visuals Features")
 local EspBox = VisualTab:AddLeftGroupbox("ESP", "box")
 local WorldBox = VisualTab:AddRightGroupbox("World", "globe")
-
--- ============ ВСЕ ПЕРЕМЕННЫЕ И НАСТРОЙКИ =============
 
 local espSettings = {
     enabled = false,
@@ -59,8 +57,6 @@ local hitSoundSettings = {
     enabled = false,
     soundType = "Rust"
 }
-
--- ============ UI =============
 
 EspBox:AddToggle("espEnabled", {
     Text = "Enabled",
@@ -210,21 +206,8 @@ WorldBox:AddDropdown("LogTypes", {
         end
     end
 })
-WorldBox:AddToggle("testNotification", {
-    Text = "Test Notification",
-    Default = false,
-    Callback = function(val)
-        if val then
-            Library:Notify({
-                Title = "Test Notification",
-                Description = "Это тестовое уведомление! Всё работает.",
-                Time = 4,
-            })
-        end
-    end
-})
 
--- ============ ВСЯ ЛОГИКА И ФУНКЦИИ (как в вашем скрипте) =============
+-- ============ ВСЯ ЛОГИКА И ФУНКЦИИ (с фиксом Distance, лагов и без Test Notification) =============
 
 local camera = workspace.CurrentCamera
 local runservice = game:GetService("RunService")
@@ -480,6 +463,8 @@ local function WorldToBox(char)
     return left, top, right, bottom, boxW, boxH, isSleeping
 end
 
+-- === Оптимизация ESP: плавное обновление для дальних игроков ===
+local veryFarUpdateDelay = 0.25 -- обновление раз в 0.25 сек для игроков >3000
 local function CreateEsp(char)
     if activeEsp[char] then return end
     local esp = {}
@@ -512,6 +497,9 @@ local function CreateEsp(char)
     esp.Distance.Outline = true
     esp.Distance.Visible = false
     activeEsp[char] = esp
+
+    local lastUpdate = 0
+
     esp._conn = runservice.RenderStepped:Connect(function()
         if not char or not char.Parent or not char:FindFirstChild("HumanoidRootPart") then
             esp._conn:Disconnect()
@@ -519,8 +507,10 @@ local function CreateEsp(char)
             activeEsp[char] = nil
             return
         end
+
         local hrp = char.HumanoidRootPart
         local dist = (camera.CFrame.Position - hrp.Position).Magnitude
+
         if not espSettings.enabled or dist > espSettings.maxDistance
         or (espSettings.aicheck and GetPlayerName(char) == "Shylou2644")
         or (espSettings.sleepcheck and SleepCheck(char)) then
@@ -531,6 +521,13 @@ local function CreateEsp(char)
             esp.Distance.Visible = false
             return
         end
+
+        -- Если очень далеко (>3000), обновление только раз в 0.25 сек (anti-lag)
+        if dist > 3000 then
+            if tick() - lastUpdate < veryFarUpdateDelay then return end
+            lastUpdate = tick()
+        end
+
         local left, top, right, bottom, boxW, boxH = WorldToBox(char)
         if not left then return end
         local centerX = left + boxW / 2
@@ -573,6 +570,7 @@ local function CreateEsp(char)
             for _, f in ipairs(esp.Corners) do f.Visible = false end
         end
 
+        -- Компактное расположение: Distance ПОД Weapon (с минимальным отступом)
         local spacing = 1
         local textHeightName = esp.Name.Size
         local textHeightWeap = esp.Weapon.Size
@@ -580,8 +578,9 @@ local function CreateEsp(char)
 
         local nameY = top - textHeightName - spacing
         local weapY = bottom + spacing
-        local distY = weapY + textHeightWeap + spacing
+        local distY = weapY + textHeightWeap + spacing -- Distance прямо под Weapon
 
+        -- Name
         if espSettings.name then
             esp.Name.Visible = true
             local realName = GetPlayerName(char)
@@ -592,10 +591,10 @@ local function CreateEsp(char)
             esp.Name.Visible = false
         end
 
+        -- Weapon и Distance друг под другом (максимум компактно)
         if espSettings.weapon then
             esp.Weapon.Visible = true
-            local weap = GetWeaponNameSolara(char)
-            esp.Weapon.Text = weap and tostring(weap) or "None"
+            esp.Weapon.Text = GetWeaponNameSolara(char) or "None"
             esp.Weapon.Position = Vector2.new(centerX, weapY)
             esp.Weapon.Color = espSettings.weaponColor
         else
@@ -605,7 +604,7 @@ local function CreateEsp(char)
         if espSettings.distance then
             esp.Distance.Visible = true
             esp.Distance.Text = string.format("%dm", math.floor(dist))
-            esp.Distance.Position = Vector2.new(centerX, distY)
+            esp.Distance.Position = Vector2.new(centerX, espSettings.weapon and distY or weapY)
             esp.Distance.Color = espSettings.distanceColor
         else
             esp.Distance.Visible = false
