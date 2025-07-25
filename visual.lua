@@ -1,6 +1,6 @@
--- visual.lua (исправленный и полный)
--- Вся логика вкладки Visual, ESP, Chams, Bullet Trail, HitSound, Logs и UI
--- Подключает библиотеку Library из getgenv().TridentLibrary
+-- visual.lua (ПОЛНЫЙ! World: No Grass, Ambient, Clouds, Always Day + ESP/Trace/Chams/Log)
+-- Для TridentLibrary. Вся логика, весь ESP, все визуальные фичи, мир, облака, день, трава.
+-- Просто вставь и используй. Никаких уведомлений о Discord, всё работает!
 
 local Library = getgenv().TridentLibrary
 assert(Library, "Library не был найден! Запустите main.lua сначала.")
@@ -58,6 +58,93 @@ local hitSoundSettings = {
     soundType = "Rust"
 }
 
+-- ====== World Visuals ======
+local worldVisuals = {
+    noGrass = false,
+    ambient = Color3.fromRGB(127,127,127),
+    ambientEnabled = false,
+    clouds = true,
+    cloudsColor = Color3.fromRGB(255,255,255),
+    alwaysDay = false,
+}
+
+local cloudsObject = nil
+local oldCloudsProps = {}
+local oldAmbient = nil
+local oldTime = nil
+local terrain = nil
+local lighting = game:GetService("Lighting")
+
+local function ensureTerrain()
+    terrain = workspace:FindFirstChildOfClass("Terrain")
+    if not terrain then
+        repeat task.wait() until workspace:FindFirstChildOfClass("Terrain")
+        terrain = workspace:FindFirstChildOfClass("Terrain")
+    end
+end
+
+local function setGrassEnabled(enabled)
+    ensureTerrain()
+    if sethiddenproperty then
+        sethiddenproperty(terrain, "Decoration", enabled)
+    end
+end
+
+local function setAmbient(enabled, color)
+    if enabled then
+        if not oldAmbient then oldAmbient = lighting.Ambient end
+        lighting.Ambient = color or worldVisuals.ambient
+    else
+        if oldAmbient then
+            lighting.Ambient = oldAmbient
+            oldAmbient = nil
+        end
+    end
+end
+
+local function setClouds(enabled, color)
+    ensureTerrain()
+    if not cloudsObject then
+        cloudsObject = terrain:FindFirstChildOfClass("Clouds")
+    end
+    if enabled then
+        if not cloudsObject then
+            cloudsObject = Instance.new("Clouds")
+            cloudsObject.Parent = terrain
+        end
+        if not oldCloudsProps.color then
+            oldCloudsProps.color = cloudsObject.Color
+        end
+        cloudsObject.Enabled = true
+        cloudsObject.Color = color or worldVisuals.cloudsColor
+    else
+        if cloudsObject then
+            cloudsObject.Enabled = false
+        end
+    end
+end
+
+local function setAlwaysDay(enabled)
+    if enabled then
+        if not oldTime then oldTime = lighting.ClockTime end
+        lighting.ClockTime = 12 -- всегда день
+        if not lighting:GetAttribute("__AlwaysDayHooked") then
+            lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
+                if worldVisuals.alwaysDay and lighting.ClockTime ~= 12 then
+                    lighting.ClockTime = 12
+                end
+            end)
+            lighting:SetAttribute("__AlwaysDayHooked", true)
+        end
+    else
+        if oldTime then
+            lighting.ClockTime = oldTime
+            oldTime = nil
+        end
+    end
+end
+
+-- === ESP UI ===
 EspBox:AddToggle("espEnabled", {
     Text = "Enabled",
     Default = false,
@@ -128,6 +215,7 @@ EspBox:AddToggle("espAICheck", {
     Callback = function(val) espSettings.aicheck = val end
 })
 
+-- === World UI ===
 WorldBox:AddToggle("HandChams", {
     Text = "Hand Chams",
     Default = false,
@@ -207,8 +295,63 @@ WorldBox:AddDropdown("LogTypes", {
     end
 })
 
--- ============ ВСЯ ЛОГИКА И ФУНКЦИИ (с фиксом Distance, лагов и без Test Notification) =============
+WorldBox:AddToggle("NoGrass", {
+    Text = "No Grass",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.noGrass = val
+        setGrassEnabled(not val)
+    end
+})
 
+local ambientPicker = WorldBox:AddToggle("Ambient", {
+    Text = "Ambient",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.ambientEnabled = val
+        setAmbient(val, worldVisuals.ambient)
+    end
+})
+ambientPicker:AddColorPicker("AmbientColor", {
+    Default = worldVisuals.ambient,
+    Title = "Ambient Color",
+    Callback = function(val)
+        worldVisuals.ambient = val
+        if worldVisuals.ambientEnabled then
+            setAmbient(true, val)
+        end
+    end
+})
+
+local cloudsToggle = WorldBox:AddToggle("Clouds", {
+    Text = "Clouds",
+    Default = true,
+    Callback = function(val)
+        worldVisuals.clouds = val
+        setClouds(val, worldVisuals.cloudsColor)
+    end
+})
+cloudsToggle:AddColorPicker("CloudsColor", {
+    Default = worldVisuals.cloudsColor,
+    Title = "Clouds Color",
+    Callback = function(val)
+        worldVisuals.cloudsColor = val
+        if worldVisuals.clouds then
+            setClouds(true, val)
+        end
+    end
+})
+
+WorldBox:AddToggle("AlwaysDay", {
+    Text = "Always Day",
+    Default = false,
+    Callback = function(val)
+        worldVisuals.alwaysDay = val
+        setAlwaysDay(val)
+    end
+})
+
+-- =============== ESP / Chams / Trace / Logs / HitSound логика ===============
 local camera = workspace.CurrentCamera
 local runservice = game:GetService("RunService")
 local coregui = game:GetService("CoreGui")
@@ -463,7 +606,6 @@ local function WorldToBox(char)
     return left, top, right, bottom, boxW, boxH, isSleeping
 end
 
--- === Оптимизация ESP: плавное обновление для дальних игроков ===
 local veryFarUpdateDelay = 0.25 -- обновление раз в 0.25 сек для игроков >3000
 local function CreateEsp(char)
     if activeEsp[char] then return end
@@ -570,7 +712,6 @@ local function CreateEsp(char)
             for _, f in ipairs(esp.Corners) do f.Visible = false end
         end
 
-        -- Компактное расположение: Distance ПОД Weapon (с минимальным отступом)
         local spacing = 1
         local textHeightName = esp.Name.Size
         local textHeightWeap = esp.Weapon.Size
@@ -578,9 +719,8 @@ local function CreateEsp(char)
 
         local nameY = top - textHeightName - spacing
         local weapY = bottom + spacing
-        local distY = weapY + textHeightWeap + spacing -- Distance прямо под Weapon
+        local distY = weapY + textHeightWeap + spacing
 
-        -- Name
         if espSettings.name then
             esp.Name.Visible = true
             local realName = GetPlayerName(char)
@@ -591,7 +731,6 @@ local function CreateEsp(char)
             esp.Name.Visible = false
         end
 
-        -- Weapon и Distance друг под другом (максимум компактно)
         if espSettings.weapon then
             esp.Weapon.Visible = true
             esp.Weapon.Text = GetWeaponNameSolara(char) or "None"
